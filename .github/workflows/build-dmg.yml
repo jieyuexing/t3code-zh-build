@@ -31,13 +31,15 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || { echo "::error::nightly_tag must look like v0.1.4-nightly.20261027.3770"; exit 1; }
           echo "NAME=T3-Code-${TAG#v}-arm64.dmg" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: jieyuexing/t3code-zh
-          ref: ${{ inputs.commit }}
-          fetch-depth: 0
-          filter: blob:none
-          persist-credentials: false
+      # Plain git: actions/checkout's auth cleanup runs `git submodule foreach`, which fails on the
+      # fork's vendored .repos gitlinks that have no .gitmodules entry.
+      - name: Check out fork commit
+        run: |
+          git init -q .
+          git remote add origin https://github.com/jieyuexing/t3code-zh.git
+          git fetch --no-tags --filter=blob:none origin "$COMMIT"
+          git checkout -q --detach "$COMMIT"
+          git log -1 --format='%H %s'
 
       # The fork only pushes zh-i18n and zh-v* tags; the version comes from the upstream nightly tag.
       - name: Fetch upstream nightly tag
