@@ -1,0 +1,88 @@
+name: build-dmg
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "jieyuexing/t3code-zh commit to build (40-character SHA)"
+        required: true
+      nightly_tag:
+        description: "Upstream nightly tag merged into that commit, e.g. v0.1.4-nightly.20261027.3770"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-dmg-${{ inputs.commit }}
+  cancel-in-progress: false
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      COMMIT: ${{ inputs.commit }}
+      TAG: ${{ inputs.nightly_tag }}
+    steps:
+      - name: Validate inputs
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a 40-character SHA"; exit 1; }
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || { echo "::error::nightly_tag must look like v0.1.4-nightly.20261027.3770"; exit 1; }
+          echo "NAME=T3-Code-${TAG#v}-arm64.dmg" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jieyuexing/t3code-zh
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      # The fork only pushes zh-i18n and zh-v* tags; the version comes from the upstream nightly tag.
+      - name: Fetch upstream nightly tag
+        run: |
+          git fetch --no-tags https://github.com/pingdotgg/t3code.git "refs/tags/${TAG}:refs/tags/${TAG}"
+          git merge-base --is-ancestor "$TAG" HEAD
+          test "$(git describe --tags --match 'v*-nightly.*' --abbrev=0)" = "$TAG"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+
+      - name: Install dependencies
+        run: |
+          npm install -g pnpm@12.14.0
+          pnpm install --frozen-lockfile
+
+      # build-desktop-zh.mjs refuses GITHUB_REPOSITORY so the DMG never carries an update feed.
+      - name: Build DMG
+        env:
+          T3CODE_DESKTOP_SIGNED: "false"
+          T3CODE_DESKTOP_KEEP_STAGE: "false"
+          T3CODE_DESKTOP_VERBOSE: "true"
+          T3CODE_RESOURCE_MONITOR_ENABLED: "false"
+        run: |
+          unset GITHUB_REPOSITORY
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          node scripts/build-desktop-zh.mjs --output-dir "$RUNNER_TEMP/out"
+
+      - name: Audit DMG
+        run: |
+          node scripts/verify-release-candidate-zh.mjs \
+            --artifact "$RUNNER_TEMP/out/$NAME" \
+            --candidate "$RUNNER_TEMP/out/$NAME.candidate.json" \
+            --audit-dmg \
+            --output "$RUNNER_TEMP/out/dmg-audit"
+          shasum -a 256 "$RUNNER_TEMP/out/$NAME"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            ${{ runner.temp }}/out/${{ env.NAME }}
+            ${{ runner.temp }}/out/${{ env.NAME }}.candidate.json
+            ${{ runner.temp }}/out/dmg-audit/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
