@@ -1,0 +1,247 @@
+name: build
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "jieyuexing/t3code-zh commit to build (40-character SHA, must equal origin/zh-i18n to publish)"
+        required: true
+      nightly_tag:
+        description: "Upstream nightly tag merged into that commit, e.g. v0.1.4-nightly.20261027.3770"
+        required: true
+      publish:
+        description: "Publish the zh-v<version> Release on jieyuexing/t3code-zh (off = publisher dry run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ inputs.commit }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  COMMIT: ${{ inputs.commit }}
+  TAG: ${{ inputs.nightly_tag }}
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - &validate
+        name: Validate inputs
+        run: |
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a 40-character SHA"; exit 1; }
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || { echo "::error::nightly_tag must look like v0.1.4-nightly.20261027.3770"; exit 1; }
+          echo "V=${TAG#v}" >> "$GITHUB_ENV"
+
+      # Plain git: actions/checkout's auth cleanup runs `git submodule foreach`, which fails on the
+      # fork's vendored .repos gitlinks that have no .gitmodules entry. autocrlf stays off so the
+      # source identity hash matches across hosts.
+      - &checkout
+        name: Check out fork commit
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+          git init -q .
+          git remote add origin https://github.com/jieyuexing/t3code-zh.git
+          git fetch --no-tags --filter=blob:none origin "$COMMIT"
+          git checkout -q --detach "$COMMIT"
+          git log -1 --format='%H %s'
+
+      # The fork only pushes zh-i18n and zh-v* tags; the version comes from the upstream nightly tag.
+      - &fetch-tag
+        name: Fetch upstream nightly tag
+        run: |
+          git fetch --no-tags https://github.com/pingdotgg/t3code.git "refs/tags/${TAG}:refs/tags/${TAG}"
+          git merge-base --is-ancestor "$TAG" HEAD
+          test "$(git describe --tags --match 'v*-nightly.*' --abbrev=0)" = "$TAG"
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+
+      - &install
+        name: Install dependencies
+        run: |
+          npm install -g pnpm@12.14.0
+          pnpm install --frozen-lockfile
+
+      # build-desktop-zh.mjs refuses GITHUB_REPOSITORY so no artifact ever carries an update feed.
+      - name: Build DMG
+        env:
+          T3CODE_DESKTOP_SIGNED: "false"
+          T3CODE_DESKTOP_KEEP_STAGE: "false"
+          T3CODE_DESKTOP_VERBOSE: "true"
+          T3CODE_RESOURCE_MONITOR_ENABLED: "false"
+        run: |
+          unset GITHUB_REPOSITORY
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          node scripts/build-desktop-zh.mjs --output-dir "$RUNNER_TEMP/out"
+
+      - name: Audit DMG
+        run: |
+          a="$RUNNER_TEMP/out/T3-Code-${V}-arm64.dmg"
+          node scripts/verify-release-candidate-zh.mjs --audit-dmg \
+            --artifact "$a" --candidate "$a.candidate.json" --output "$RUNNER_TEMP/out/dmg-audit"
+          node scripts/verify-release-candidate-zh.mjs \
+            --artifact "$a" --candidate "$a.candidate.json" --receipt "$RUNNER_TEMP/out/dmg-audit/receipt.json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dmg
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  # Linux then Windows, serially: each CLI build cleans the previous target's dist-exe.
+  archives:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      SMOKE_TARGET: linux-x64.tar.gz
+      SMOKE_AUDIT: linux-audit
+    steps:
+      - *validate
+      - *checkout
+      - *fetch-tag
+
+      # The SEA host must be exactly the root package.json engines.node.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+
+      - *install
+
+      - name: Install patchelf
+        run: sudo apt-get install -y -q patchelf
+
+      - name: Download upstream release templates
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir "$RUNNER_TEMP/upstream" && cd "$RUNNER_TEMP/upstream"
+          gh api "repos/pingdotgg/t3code/releases/tags/${TAG}" > upstream-release.json
+          gh release download "$TAG" -R pingdotgg/t3code \
+            -p "t3-${V}-linux-x64.tar.gz" -p "t3-${V}-win32-x64.zip" -p SHA256SUMS
+
+      - name: Build Linux and Windows archives
+        env:
+          T3CODE_RESOURCE_MONITOR_ENABLED: "false"
+        run: |
+          unset GITHUB_REPOSITORY
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          up="$RUNNER_TEMP/upstream"
+          for target in linux:linux-x64.tar.gz win:win32-x64.zip; do
+            node scripts/build-desktop-zh.mjs --platform "${target%%:*}" --target archive --arch x64 \
+              --official-archive "$up/t3-${V}-${target#*:}" --release-metadata "$up/upstream-release.json" \
+              --sha256sums "$up/SHA256SUMS" --output-dir "$RUNNER_TEMP/out"
+          done
+
+      - &smoke
+        name: Smoke CLI archive on its native OS
+        run: |
+          a="$RUNNER_TEMP/out/t3-${V}-${SMOKE_TARGET}"
+          audit="$RUNNER_TEMP/out/$SMOKE_AUDIT"
+          node scripts/verify-release-candidate-zh.mjs --smoke-cli \
+            --artifact "$a" --candidate "$a.candidate.json" --output "$audit"
+          node scripts/verify-release-candidate-zh.mjs \
+            --artifact "$a" --candidate "$a.candidate.json" --receipt "$audit/receipt.json"
+          # Keep only the receipt and its stage originals; the extracted archive is not evidence.
+          node -e 'for (const d of ["extracted", "home", "temp"]) require("fs").rmSync(require("path").join(process.argv[1], d), { recursive: true, force: true })' "$audit"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: archives
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  windows-smoke:
+    needs: archives
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      SMOKE_TARGET: win32-x64.zip
+      SMOKE_AUDIT: windows-cli-audit
+    steps:
+      - *validate
+      - *checkout
+      - *fetch-tag
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.12.1
+
+      - *install
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: archives
+          path: ${{ runner.temp }}/out
+
+      - *smoke
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-cli-audit
+          path: ${{ runner.temp }}/out/windows-cli-audit/
+          if-no-files-found: error
+          retention-days: 7
+
+  # release-desktop-zh.mjs is the only publisher: it re-checks every candidate and receipt against
+  # this clean checkout and origin/zh-i18n before any GitHub write.
+  publish:
+    needs: [dmg, archives, windows-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - *validate
+      - *checkout
+      - *fetch-tag
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.15.0
+
+      # One directory per artifact: dmg/, archives/, windows-cli-audit/.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: ${{ runner.temp }}/suite
+
+      - name: Publish Release
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          RELEASE_TOKEN: ${{ secrets.T3CODE_ZH_RELEASE_TOKEN }}
+          READ_TOKEN: ${{ github.token }}
+        run: |
+          s="$RUNNER_TEMP/suite"
+          cat > "$s/suite.json" <<JSON
+          {
+            "schema": 1,
+            "version": "$V",
+            "artifacts": [
+              { "artifact": "dmg/T3-Code-$V-arm64.dmg", "candidate": "dmg/T3-Code-$V-arm64.dmg.candidate.json", "receipt": "dmg/dmg-audit/receipt.json" },
+              { "artifact": "archives/t3-$V-linux-x64.tar.gz", "candidate": "archives/t3-$V-linux-x64.tar.gz.candidate.json", "receipt": "archives/linux-audit/receipt.json" },
+              { "artifact": "archives/t3-$V-win32-x64.zip", "candidate": "archives/t3-$V-win32-x64.zip.candidate.json", "receipt": "windows-cli-audit/receipt.json" }
+            ]
+          }
+          JSON
+          if [[ "$PUBLISH" == true ]]; then
+            [[ -n "$RELEASE_TOKEN" ]] || { echo "::error::secret T3CODE_ZH_RELEASE_TOKEN is not set"; exit 1; }
+            export GH_TOKEN="$RELEASE_TOKEN"
+            mode=()
+          else
+            export GH_TOKEN="$READ_TOKEN"
+            mode=(--dry-run)
+          fi
+          export TMPDIR="$RUNNER_TEMP" TMP="$RUNNER_TEMP" TEMP="$RUNNER_TEMP"
+          node scripts/release-desktop-zh.mjs --suite "$s/suite.json" "${mode[@]}"
