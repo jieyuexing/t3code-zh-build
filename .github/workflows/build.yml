@@ -120,8 +120,8 @@ jobs:
 
       - *install
 
-      - name: Install patchelf
-        run: sudo apt-get install -y -q patchelf
+      - name: Install patchelf and bsdtar
+        run: sudo apt-get install -y -q patchelf libarchive-tools
 
       - name: Download upstream release templates
         env:
@@ -139,11 +139,15 @@ jobs:
           unset GITHUB_REPOSITORY
           export PATH="$PWD/node_modules/.bin:$PATH"
           up="$RUNNER_TEMP/upstream"
-          for target in linux:linux-x64.tar.gz win:win32-x64.zip; do
-            node scripts/build-desktop-zh.mjs --platform "${target%%:*}" --target archive --arch x64 \
-              --official-archive "$up/t3-${V}-${target#*:}" --release-metadata "$up/upstream-release.json" \
+          build() {
+            node scripts/build-desktop-zh.mjs --platform "$1" --target archive --arch x64 \
+              --official-archive "$up/t3-${V}-$2" --release-metadata "$up/upstream-release.json" \
               --sha256sums "$up/SHA256SUMS" --output-dir "$RUNNER_TEMP/out"
-          done
+          }
+          build linux linux-x64.tar.gz
+          # The Windows zip is read and written with bare `tar`, which must be bsdtar (GNU tar has no zip).
+          mkdir "$RUNNER_TEMP/bsdtar" && ln -s /usr/bin/bsdtar "$RUNNER_TEMP/bsdtar/tar"
+          PATH="$RUNNER_TEMP/bsdtar:$PATH" build win win32-x64.zip
 
       - &smoke
         name: Smoke CLI archive on its native OS
