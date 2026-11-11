@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "jieyuexing/t3code-zh commit to build (40-character SHA, must equal origin/zh-i18n to publish)"
+        description: "jieyuexing/t3code-zh commit to build (40-character SHA, must equal origin/zh-main to publish)"
         required: true
       nightly_tag:
         description: "Upstream nightly tag merged into that commit, e.g. v0.1.4-nightly.20261027.3770"
@@ -55,7 +55,7 @@ jobs:
           git checkout -q --detach "$COMMIT"
           git log -1 --format='%H %s'
 
-      # The fork only pushes zh-i18n and zh-v* tags; the version comes from the upstream nightly tag.
+      # The fork only pushes zh-main and zh-v* tags; the version comes from the upstream nightly tag.
       - &fetch-tag
         name: Fetch upstream nightly tag
         run: |
@@ -202,7 +202,7 @@ jobs:
           retention-days: 1
 
   # release-desktop-zh.mjs is the only publisher: it re-checks every candidate and receipt against
-  # this clean checkout and origin/zh-i18n before any GitHub write.
+  # this clean checkout and origin/zh-main before any GitHub write.
   publish:
     needs: [dmg, archives, windows-smoke]
     runs-on: ubuntu-24.04
