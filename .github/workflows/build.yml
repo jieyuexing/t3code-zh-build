@@ -34,12 +34,29 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     steps:
+      # With publish on, stop before building when the publisher would refuse anyway: the commit is
+      # not origin/zh-main, or zh-vV is already published or tagged on another commit. Drafts stay
+      # invisible to this read-only token, so a resumable draft still reaches the publisher.
       - &validate
         name: Validate inputs
+        env:
+          PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::commit must be a 40-character SHA"; exit 1; }
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || { echo "::error::nightly_tag must look like v0.1.4-nightly.20261027.3770"; exit 1; }
           echo "V=${TAG#v}" >> "$GITHUB_ENV"
+          if [[ "$PUBLISH" == true ]]; then
+            repo=jieyuexing/t3code-zh rel="zh-v${TAG#v}"
+            head=$(gh api "repos/$repo/commits/zh-main" -q .sha)
+            [[ "$head" == "$COMMIT" ]] || { echo "::error::commit must equal origin/zh-main ($head) to publish"; exit 1; }
+            if gh api "repos/$repo/releases/tags/$rel" --silent 2>/dev/null; then
+              echo "::error::$rel is already published; published releases are immutable"; exit 1
+            fi
+            if tagged=$(gh api "repos/$repo/commits/$rel" -q .sha 2>/dev/null); then
+              [[ "$tagged" == "$COMMIT" ]] || { echo "::error::$rel already points to $tagged"; exit 1; }
+            fi
+          fi
 
       # Plain git: actions/checkout's auth cleanup runs `git submodule foreach`, which fails on the
       # fork's vendored .repos gitlinks that have no .gitmodules entry. autocrlf stays off so the

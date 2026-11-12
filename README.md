@@ -13,7 +13,7 @@ The fork keeps GitHub Actions disabled, because enabling them would also run eve
 | `windows-smoke` | windows-2025 | Windows CLI smoke receipt |
 | `publish` | ubuntu-24.04 | `zh-vV` Release on the fork via `scripts/release-desktop-zh.mjs` |
 
-The publisher re-checks every candidate and receipt against a clean checkout, and the commit must equal `origin/zh-main`. With `publish` off it only does a dry run. Artifacts are kept for 7 days.
+The publisher re-checks every candidate and receipt against a clean checkout, and the commit must equal `origin/zh-main`. With `publish` off it only does a dry run. With `publish` on, every job first checks what the publisher would refuse anyway: the commit is not `origin/zh-main`, or `zh-vV` is already published or tagged on another commit. Such a run fails within seconds instead of after the builds. Run artifacts are kept for 1 day and deleted once the Release is published.
 
 The Windows NSIS installer is not built. Packages are unsigned, so macOS and Windows ask for confirmation the first time they open.
 
