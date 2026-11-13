@@ -11,7 +11,7 @@ The fork keeps GitHub Actions disabled, because enabling them would also run eve
 | `dmg` | macos-15 | `T3-Code-V-arm64.dmg`, audited read-only |
 | `archives` | ubuntu-24.04 | `t3-V-linux-x64.tar.gz` and `t3-V-win32-x64.zip`, Linux smoke |
 | `windows-smoke` | windows-2025 | Windows CLI smoke receipt |
-| `publish` | ubuntu-24.04 | `cn-vV` Release on the fork via `scripts/release-desktop-zh.mjs` |
+| `publish` | ubuntu-24.04 | `cn-vV` Release on the fork via `scripts/release-desktop-cn.mjs` |
 
 The publisher re-checks every candidate and receipt against a clean checkout, and the commit must equal `origin/main`. With `publish` off it only does a dry run. With `publish` on, every job first checks what the publisher would refuse anyway: the commit is not `origin/main`, or `cn-vV` is already published or tagged on another commit. Such a run fails within seconds instead of after the builds. Run artifacts are kept for 1 day and deleted once the Release is published.
 

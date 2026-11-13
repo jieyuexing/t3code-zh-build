@@ -90,7 +90,7 @@ jobs:
           npm install -g pnpm@12.14.0
           pnpm install --frozen-lockfile
 
-      # build-desktop-zh.mjs refuses GITHUB_REPOSITORY so no artifact ever carries an update feed.
+      # build-desktop-cn.mjs refuses GITHUB_REPOSITORY so no artifact ever carries an update feed.
       - name: Build DMG
         env:
           T3CODE_DESKTOP_SIGNED: "false"
@@ -100,14 +100,14 @@ jobs:
         run: |
           unset GITHUB_REPOSITORY
           export PATH="$PWD/node_modules/.bin:$PATH"
-          node scripts/build-desktop-zh.mjs --output-dir "$RUNNER_TEMP/out"
+          node scripts/build-desktop-cn.mjs --output-dir "$RUNNER_TEMP/out"
 
       - name: Audit DMG
         run: |
           a="$RUNNER_TEMP/out/T3-Code-${V}-arm64.dmg"
-          node scripts/verify-release-candidate-zh.mjs --audit-dmg \
+          node scripts/verify-release-candidate-cn.mjs --audit-dmg \
             --artifact "$a" --candidate "$a.candidate.json" --output "$RUNNER_TEMP/out/dmg-audit"
-          node scripts/verify-release-candidate-zh.mjs \
+          node scripts/verify-release-candidate-cn.mjs \
             --artifact "$a" --candidate "$a.candidate.json" --receipt "$RUNNER_TEMP/out/dmg-audit/receipt.json"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -157,7 +157,7 @@ jobs:
           export PATH="$PWD/node_modules/.bin:$PATH"
           up="$RUNNER_TEMP/upstream"
           build() {
-            node scripts/build-desktop-zh.mjs --platform "$1" --target archive --arch x64 \
+            node scripts/build-desktop-cn.mjs --platform "$1" --target archive --arch x64 \
               --official-archive "$up/t3-${V}-$2" --release-metadata "$up/upstream-release.json" \
               --sha256sums "$up/SHA256SUMS" --output-dir "$RUNNER_TEMP/out"
           }
@@ -171,9 +171,9 @@ jobs:
         run: |
           a="$RUNNER_TEMP/out/t3-${V}-${SMOKE_TARGET}"
           audit="$RUNNER_TEMP/out/$SMOKE_AUDIT"
-          node scripts/verify-release-candidate-zh.mjs --smoke-cli \
+          node scripts/verify-release-candidate-cn.mjs --smoke-cli \
             --artifact "$a" --candidate "$a.candidate.json" --output "$audit"
-          node scripts/verify-release-candidate-zh.mjs \
+          node scripts/verify-release-candidate-cn.mjs \
             --artifact "$a" --candidate "$a.candidate.json" --receipt "$audit/receipt.json"
           # Keep only the receipt and its stage originals; the extracted archive is not evidence.
           node -e 'for (const d of ["extracted", "home", "temp"]) require("fs").rmSync(require("path").join(process.argv[1], d), { recursive: true, force: true })' "$audit"
@@ -218,7 +218,7 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # release-desktop-zh.mjs is the only publisher: it re-checks every candidate and receipt against
+  # release-desktop-cn.mjs is the only publisher: it re-checks every candidate and receipt against
   # this clean checkout and origin/main before any GitHub write.
   publish:
     needs: [dmg, archives, windows-smoke]
@@ -268,7 +268,7 @@ jobs:
             mode=(--dry-run)
           fi
           export TMPDIR="$RUNNER_TEMP" TMP="$RUNNER_TEMP" TEMP="$RUNNER_TEMP"
-          node scripts/release-desktop-zh.mjs --suite "$s/suite.json" "${mode[@]}"
+          node scripts/release-desktop-cn.mjs --suite "$s/suite.json" "${mode[@]}"
 
       # Release assets do not count toward Actions storage; drop the intermediates once published.
       - name: Delete run artifacts
