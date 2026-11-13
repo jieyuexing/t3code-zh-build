@@ -13,7 +13,7 @@ The fork keeps GitHub Actions disabled, because enabling them would also run eve
 | `windows-smoke` | windows-2025 | Windows CLI smoke receipt |
 | `publish` | ubuntu-24.04 | `cn-vV` Release on the fork via `scripts/release-desktop-zh.mjs` |
 
-The publisher re-checks every candidate and receipt against a clean checkout, and the commit must equal `origin/cn-main`. With `publish` off it only does a dry run. With `publish` on, every job first checks what the publisher would refuse anyway: the commit is not `origin/cn-main`, or `cn-vV` is already published or tagged on another commit. Such a run fails within seconds instead of after the builds. Run artifacts are kept for 1 day and deleted once the Release is published.
+The publisher re-checks every candidate and receipt against a clean checkout, and the commit must equal `origin/main`. With `publish` off it only does a dry run. With `publish` on, every job first checks what the publisher would refuse anyway: the commit is not `origin/main`, or `cn-vV` is already published or tagged on another commit. Such a run fails within seconds instead of after the builds. Run artifacts are kept for 1 day and deleted once the Release is published.
 
 The Windows NSIS installer is not built. Packages are unsigned, so macOS and Windows ask for confirmation the first time they open.
 
@@ -21,7 +21,7 @@ The Windows NSIS installer is not built. Packages are unsigned, so macOS and Win
 
 ```sh
 gh workflow run build.yml -R jieyuexing/t3code-cn-build \
-  -f commit=<cn-main SHA> -f nightly_tag=<v…-nightly.…> -f publish=true
+  -f commit=<main SHA> -f nightly_tag=<v…-nightly.…> -f publish=true
 ```
 
 Publishing uses the repository secret `T3CODE_ZH_RELEASE_TOKEN`, a fine-grained token limited to `jieyuexing/t3code-cn` with Contents read and write. When it expires the `publish` job fails with a 401; replace it with `gh secret set T3CODE_ZH_RELEASE_TOKEN -R jieyuexing/t3code-cn-build`.
