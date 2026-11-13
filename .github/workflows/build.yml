@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       commit:
-        description: "jieyuexing/t3code-zh commit to build (40-character SHA, must equal origin/zh-main to publish)"
+        description: "jieyuexing/t3code-cn commit to build (40-character SHA, must equal origin/cn-main to publish)"
         required: true
       nightly_tag:
         description: "Upstream nightly tag merged into that commit, e.g. v0.1.4-nightly.20261027.3770"
         required: true
       publish:
-        description: "Publish the zh-v<version> Release on jieyuexing/t3code-zh (off = publisher dry run)"
+        description: "Publish the cn-v<version> Release on jieyuexing/t3code-cn (off = publisher dry run)"
         type: boolean
         default: false
 
@@ -35,7 +35,7 @@ jobs:
     timeout-minutes: 60
     steps:
       # With publish on, stop before building when the publisher would refuse anyway: the commit is
-      # not origin/zh-main, or zh-vV is already published or tagged on another commit. Drafts stay
+      # not origin/cn-main, or cn-vV is already published or tagged on another commit. Drafts stay
       # invisible to this read-only token, so a resumable draft still reaches the publisher.
       - &validate
         name: Validate inputs
@@ -47,9 +47,9 @@ jobs:
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]{8}\.[0-9]+$ ]] || { echo "::error::nightly_tag must look like v0.1.4-nightly.20261027.3770"; exit 1; }
           echo "V=${TAG#v}" >> "$GITHUB_ENV"
           if [[ "$PUBLISH" == true ]]; then
-            repo=jieyuexing/t3code-zh rel="zh-v${TAG#v}"
-            head=$(gh api "repos/$repo/commits/zh-main" -q .sha)
-            [[ "$head" == "$COMMIT" ]] || { echo "::error::commit must equal origin/zh-main ($head) to publish"; exit 1; }
+            repo=jieyuexing/t3code-cn rel="cn-v${TAG#v}"
+            head=$(gh api "repos/$repo/commits/cn-main" -q .sha)
+            [[ "$head" == "$COMMIT" ]] || { echo "::error::commit must equal origin/cn-main ($head) to publish"; exit 1; }
             if gh api "repos/$repo/releases/tags/$rel" --silent 2>/dev/null; then
               echo "::error::$rel is already published; published releases are immutable"; exit 1
             fi
@@ -67,12 +67,12 @@ jobs:
           git config --global core.autocrlf false
           git config --global core.longpaths true
           git init -q .
-          git remote add origin https://github.com/jieyuexing/t3code-zh.git
+          git remote add origin https://github.com/jieyuexing/t3code-cn.git
           git fetch --no-tags --filter=blob:none origin "$COMMIT"
           git checkout -q --detach "$COMMIT"
           git log -1 --format='%H %s'
 
-      # The fork only pushes zh-main and zh-v* tags; the version comes from the upstream nightly tag.
+      # The fork only pushes cn-main and cn-v* tags; the version comes from the upstream nightly tag.
       - &fetch-tag
         name: Fetch upstream nightly tag
         run: |
@@ -219,7 +219,7 @@ jobs:
           retention-days: 1
 
   # release-desktop-zh.mjs is the only publisher: it re-checks every candidate and receipt against
-  # this clean checkout and origin/zh-main before any GitHub write.
+  # this clean checkout and origin/cn-main before any GitHub write.
   publish:
     needs: [dmg, archives, windows-smoke]
     runs-on: ubuntu-24.04
